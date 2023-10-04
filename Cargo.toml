@@ -1,0 +1,8 @@
+[package]
+name = "abi-codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+everscale-types = {git = "https://github.com/broxus/everscale-types"}
+abi = {path = "abi"}
