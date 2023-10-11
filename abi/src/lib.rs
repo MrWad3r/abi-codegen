@@ -29,11 +29,8 @@ pub fn abi(input: TokenStream) -> TokenStream {
     let content = fs::read_to_string(path).unwrap();
     let contract = serde_json::from_str::<Contract>(&content).unwrap();
 
-    println!("{}", contract.abi_version.major);
-
     contract.functions.iter().for_each(|(name, function)| {
         let name = name.to_string();
-        let ident_name = format_ident!("{}_function", &name);
         let function_token = process_function(name, function, &mut generated_structs);
         generated_functions.push(function_token);
     });
@@ -76,26 +73,25 @@ pub fn abi(input: TokenStream) -> TokenStream {
         header_idents.push(quote);
     }
 
-    println!("we here2");
     let slice_token = quote! {
         [ #(#header_idents),* ]
     };
-    println!("we here3");
+
+    let header_count = contract.headers.len();
+    let major = contract.abi_version.major;
+    let minor = contract.abi_version.minor;
 
     let quote = quote! {
 
         mod #contract_name {
 
-            mod models {
-                #(#generated_structs)*
-            }
+            #(#generated_structs)*
 
             mod functions {
-                use super::models::*;
                 use super::*;
 
-                const HEADERS: &[#header_type] = &#slice_token;
-                const ABI_VERSION: #abi_type = <#abi_type>::new(2,2);
+                const HEADERS: [#header_type; #header_count] = #slice_token;
+                const ABI_VERSION: #abi_type = <#abi_type>::new(#major, #minor);
 
                 #(#generated_functions)*
             }
@@ -110,10 +106,15 @@ fn process_function(
     function: &Function,
     structs: &mut Vec<proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
-    let (input_name, input_tokens) = make_function_input_struct(function);
-    //let (output_name, output_tokens) = make_function_output_struct(function);
+    let mut struct_gen = StructGen::new();
+    let (input_name, input_tokens) = struct_gen.make_function_input_struct(function);
+    //let (output_name, output_tokens) = struct_gen.make_function_output_struct(function);
 
-    let func = generate_func_body(function.name.as_ref());
+    let func = generate_func_body(input_name.as_str());
+
+    for i in struct_gen.internal_structs {
+        structs.push(i);
+    }
 
     structs.push(input_tokens);
     //structs.push(output_tokens);
@@ -129,7 +130,7 @@ fn generate_func_body(name: &str) -> proc_macro2::TokenStream {
             static ONCE: std::sync::OnceLock<everscale_types::abi::Function> = std::sync::OnceLock::new();
             ONCE.get_or_init(|| {
                 everscale_types::abi::FunctionBuilder::new(ABI_VERSION, #name)
-                .with_headers(HEADERS.to_vec())
+                .with_headers(HEADERS)
                 .build()
             })
         }
@@ -137,160 +138,216 @@ fn generate_func_body(name: &str) -> proc_macro2::TokenStream {
     func
 }
 
-fn make_function_input_struct(function: &Function) -> (String, proc_macro2::TokenStream) {
-    let struct_name = format_ident!("{}FunctionInput", function.name.as_ref());
-    let mut properties: Vec<proc_macro2::TokenStream> = Vec::new();
-    for i in function.inputs.iter() {
-        let type_name = make_struct_property(Some(i.name.to_string()), &i.ty, None);
-        let property_name_ident = format_ident!("{}", i.name.as_ref());
-        let ty_ident = type_name.type_name();
-        let quote = quote! {
-             pub #property_name_ident: #ty_ident,
-        };
-        properties.push(quote);
-    }
-    let func = quote! {
-        pub struct #struct_name {
-            #(#properties)*
-        }
-    };
-
-    (struct_name.to_string(), func.into())
+struct StructGen {
+    internal_structs: Vec<proc_macro2::TokenStream>,
 }
 
-fn make_function_output_struct(function: &Function) -> (String, proc_macro2::TokenStream) {
-    let struct_name = format_ident!("{}FunctionOutput", function.name.as_ref());
-    let mut properties: Vec<proc_macro2::TokenStream> = Vec::new();
-    for i in function.outputs.iter() {
-        let type_name = make_struct_property(Some(i.name.to_string()), &i.ty, None);
-        let property_name_ident = format_ident!("{}", i.name.as_ref());
-        let ty_ident = type_name.type_name();
-        let quote = quote! {
-            pub #property_name_ident: #ty_ident,
-        };
-        properties.push(quote.into());
+impl StructGen {
+    fn new() -> Self {
+        Self {
+            internal_structs: Vec::new(),
+        }
     }
-    let func = quote! {
-        pub struct #struct_name {
-            #(#properties)*
-        }
-    };
 
-    (struct_name.to_string(), func.into())
-}
+    fn make_function_output_struct(
+        &mut self,
+        function: &Function,
+    ) -> (String, proc_macro2::TokenStream) {
+        let struct_name = format_ident!("{}FunctionOutput", function.name.as_ref());
+        let mut properties = Vec::<proc_macro2::TokenStream>::new();
+        for i in function.outputs.iter() {
+            let type_name = self.make_struct_property_with_internal(i.name.to_string(), &i.ty);
+            let property_name_ident = format_ident!("{}", i.name.as_ref());
+            let ty_ident = type_name.type_name();
+            let quote = quote! {
+                pub #property_name_ident: #ty_ident,
+            };
+            self.internal_structs.push(quote.into());
+        }
 
-fn make_struct_property(
-    initial_name: Option<String>,
-    param: &AbiType,
-    &mut internal_structs: Option<Vec<StructProperty>>,
-) -> StructProperty {
-    let mut name = initial_name.map(|x| x.to_string());
+        let func = quote! {
+            pub struct #struct_name {
+                #(#properties)*
+            }
+        };
 
-    match param {
-        AbiType::Uint(a) => {
-            let ty = match a {
-                8 => "u8",
-                16 => "u16",
-                32 => "u32",
-                64 => "u64",
-                128 => "u128",
-                160 => "[u8; 20]",
-                256 => "everscale_types::prelude::HashBytes",
-                _ => "num_bigint::BigUint",
+        (struct_name.to_string(), func.into())
+    }
+
+    fn make_function_input_struct(
+        &mut self,
+        function: &Function,
+    ) -> (String, proc_macro2::TokenStream) {
+        let struct_name = format_ident!("{}FunctionInput", function.name.as_ref());
+        let mut properties = Vec::<proc_macro2::TokenStream>::new();
+        for i in function.inputs.iter() {
+            let type_name = self.make_struct_property_with_internal(i.name.to_string(), &i.ty);
+            let property_name_ident = format_ident!("{}", i.name.as_ref());
+            let ty_ident = type_name.type_name();
+            let quote = quote! {
+                pub #property_name_ident: #ty_ident,
             };
-            StructProperty::Simple {
-                name: name,
-                type_name: syn::parse_str(ty).unwrap(),
+            properties.push(quote.into());
+            properties.extend_from_slice(self.internal_structs.as_slice());
+        }
+
+        let func = quote! {
+            pub struct #struct_name {
+                #(#properties)*
             }
-        }
-        AbiType::Int(a) => {
-            let ty = match a {
-                8 => "i8",
-                16 => "i16",
-                32 => "i32",
-                64 => "i64",
-                128 => "i128",
-                _ => "num_bigint::BigInt",
-            };
-            StructProperty::Simple {
-                name: name,
-                type_name: syn::parse_str(ty).unwrap(),
-            }
-        }
-        AbiType::VarUint(_) | AbiType::VarInt(_) => StructProperty::Simple {
-            name: name,
-            type_name: syn::parse_quote!(num_bigint::BigUint),
-        },
-        AbiType::Bool => StructProperty::Simple {
-            name: name,
-            type_name: syn::parse_quote!(bool),
-        },
-        AbiType::Tuple(a) => {
-            let mut structs: Vec<StructProperty> = Vec::new();
-            for i in a.iter() {
-                //let name = i.name.clone();
-                let property =
-                    make_struct_property(Some(i.name.to_string()), &i.ty, &mut Some(structs));
-                structs.push(property);
-            }
-            return StructProperty::Tuple {
-                name: name.unwrap_or_default(),
-                fields: structs,
-            };
-        }
-        AbiType::Array(a) | AbiType::FixedArray(a, _) => {
-            let internal_struct = make_struct_property(None, a.as_ref());
-            return StructProperty::Array {
-                name: name.unwrap_or_default(),
-                internal: Box::new(internal_struct),
-            };
-        }
-        AbiType::Cell => StructProperty::Simple {
-            name: name,
-            type_name: syn::parse_quote!(everscale_types::prelude::Cell),
-        },
-        AbiType::Map(a, b) => {
-            let key = match a {
-                &PlainAbiType::Uint(_) | &PlainAbiType::Int(_) | &PlainAbiType::Address => {
-                    make_struct_property(None, &a.clone().into())
+        };
+
+        (struct_name.to_string(), func.into())
+    }
+
+    fn make_struct_property_with_internal(
+        &mut self,
+        initial_name: String,
+        param: &AbiType,
+    ) -> StructProperty {
+        self.make_struct_property(Some(initial_name), param)
+    }
+
+    fn make_struct_property(
+        &mut self,
+        initial_name: Option<String>,
+        param: &AbiType,
+    ) -> StructProperty {
+        let mut name = initial_name.map(|x| x.to_string());
+
+        match param {
+            AbiType::Uint(a) => {
+                let ty = match a {
+                    8 => "u8",
+                    16 => "u16",
+                    32 => "u32",
+                    64 => "u64",
+                    128 => "u128",
+                    160 => "[u8; 20]",
+                    256 => "everscale_types::prelude::HashBytes",
+                    _ => "num_bigint::BigUint",
+                };
+                StructProperty::Simple {
+                    name: name,
+                    type_name: syn::parse_str(ty).unwrap(),
                 }
-                _ => panic!("Map key is not allowed type"),
-            };
+            }
+            AbiType::Int(a) => {
+                let ty = match a {
+                    8 => "i8",
+                    16 => "i16",
+                    32 => "i32",
+                    64 => "i64",
+                    128 => "i128",
+                    _ => "num_bigint::BigInt",
+                };
+                StructProperty::Simple {
+                    name: name,
+                    type_name: syn::parse_str(ty).unwrap(),
+                }
+            }
+            AbiType::VarUint(_) | AbiType::VarInt(_) => StructProperty::Simple {
+                name: name,
+                type_name: syn::parse_quote!(num_bigint::BigUint),
+            },
+            AbiType::Bool => StructProperty::Simple {
+                name: name,
+                type_name: syn::parse_quote!(bool),
+            },
+            AbiType::Tuple(a) => {
+                let mut structs: Vec<StructProperty> = Vec::new();
 
-            let value = make_struct_property(None, b.as_ref());
+                for i in a.iter() {
+                    //let name = i.name.clone();
+                    let property = self.make_struct_property(Some(i.name.to_string()), &i.ty);
+                    let property_name_ident = format_ident!("{}", i.name.as_ref());
+                    let ty_ident = property.type_name();
 
-            return StructProperty::HashMap {
-                name: name.unwrap_or_default(),
-                key: Box::new(key),
-                value: Box::new(value),
-            };
-        }
-        AbiType::Address => StructProperty::Simple {
-            name: name,
-            type_name: syn::parse_quote!(everscale_types::models::IntAddr),
-        },
-        AbiType::Bytes | AbiType::FixedBytes(_) => StructProperty::Simple {
-            name: name,
-            type_name: syn::parse_quote!(Vec<u8>),
-        },
-        AbiType::String => StructProperty::Simple {
-            name: name,
-            type_name: syn::parse_quote!(String),
-        },
-        AbiType::Token => StructProperty::Simple {
-            name: name,
-            type_name: syn::parse_quote!(everscale_types::num::Tokens),
-        },
-        AbiType::Optional(a) => {
-            let internal_struct = make_struct_property(None, a.as_ref());
-            return StructProperty::Option {
-                name: name.unwrap_or_default(),
-                internal: Box::new(internal_struct),
-            };
-        }
-        AbiType::Ref(a) => {
-            let name = name.map(|x| x.clone());
-            return make_struct_property(name, a.as_ref());
+                    let quote = quote! {
+                        pub #property_name_ident: #ty_ident,
+                    };
+
+                    structs.push(property);
+                }
+
+                let mut internal_properties: Vec<proc_macro2::TokenStream> = Vec::new();
+
+                for p in &structs {
+                    let internal_property_name_ident = format_ident!("{}", p.name().as_str());
+                    let internal_ident = p.type_name();
+                    let quote = quote! {
+                        pub #internal_property_name_ident: #internal_ident,
+                    };
+                    internal_properties.push(quote);
+                }
+                let name = name.unwrap_or_default();
+                let struct_name_ident = format_ident!("{}", &name);
+                let internal_struct = quote! {
+                    pub struct #struct_name_ident {
+                        #(#internal_properties)*
+                    }
+                };
+                self.internal_structs.push(internal_struct);
+
+                return StructProperty::Tuple {
+                    name: name,
+                    fields: structs,
+                };
+            }
+            AbiType::Array(a) | AbiType::FixedArray(a, _) => {
+                let internal_struct = self.make_struct_property(None, a.as_ref());
+                return StructProperty::Array {
+                    name: name.unwrap_or_default(),
+                    internal: Box::new(internal_struct),
+                };
+            }
+            AbiType::Cell => StructProperty::Simple {
+                name: name,
+                type_name: syn::parse_quote!(everscale_types::prelude::Cell),
+            },
+            AbiType::Map(a, b) => {
+                let key = match a {
+                    &PlainAbiType::Uint(_) | &PlainAbiType::Int(_) | &PlainAbiType::Address => {
+                        self.make_struct_property(None, &a.clone().into())
+                    }
+                    _ => panic!("Map key is not allowed type"),
+                };
+
+                let value = self.make_struct_property(None, b.as_ref());
+
+                return StructProperty::HashMap {
+                    name: name.unwrap_or_default(),
+                    key: Box::new(key),
+                    value: Box::new(value),
+                };
+            }
+            AbiType::Address => StructProperty::Simple {
+                name: name,
+                type_name: syn::parse_quote!(everscale_types::models::IntAddr),
+            },
+            AbiType::Bytes | AbiType::FixedBytes(_) => StructProperty::Simple {
+                name: name,
+                type_name: syn::parse_quote!(Vec<u8>),
+            },
+            AbiType::String => StructProperty::Simple {
+                name: name,
+                type_name: syn::parse_quote!(String),
+            },
+            AbiType::Token => StructProperty::Simple {
+                name: name,
+                type_name: syn::parse_quote!(everscale_types::num::Tokens),
+            },
+            AbiType::Optional(a) => {
+                let internal_struct = self.make_struct_property(None, a.as_ref());
+                return StructProperty::Option {
+                    name: name.unwrap_or_default(),
+                    internal: Box::new(internal_struct),
+                };
+            }
+            AbiType::Ref(a) => {
+                let name = name.map(|x| x.clone());
+                return self.make_struct_property(name, a.as_ref());
+            }
         }
     }
 }
@@ -337,6 +394,19 @@ impl StructProperty {
                 let value = value.type_name();
                 syn::parse_quote!(std::collections::HashMap<#key, #value>)
             }
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            StructProperty::Simple { name, .. } => {
+                let name = name.clone().map(|x| x.clone());
+                name.unwrap_or_default()
+            }
+            StructProperty::Tuple { name, .. } => name.clone(),
+            StructProperty::Array { name, .. } => name.clone(),
+            StructProperty::Option { name, .. } => name.clone(),
+            StructProperty::HashMap { name, .. } => name.clone(),
         }
     }
 }
