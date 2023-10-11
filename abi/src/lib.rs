@@ -6,7 +6,9 @@ use std::fs::{read_to_string, File};
 use std::path::PathBuf;
 
 use crate::StructProperty::Simple;
-use everscale_types::abi::{AbiType, Contract, Function, FunctionBuilder, PlainAbiType};
+use everscale_types::abi::{
+    AbiHeaderType, AbiType, AbiVersion, Contract, Function, FunctionBuilder, PlainAbiType,
+};
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use serde_json::Value;
@@ -36,30 +38,68 @@ pub fn abi(input: TokenStream) -> TokenStream {
         generated_functions.push(function_token);
     });
 
-    let structs: Vec<_> = contract
-        .events
-        .iter()
-        .map(|(name, event)| {
-            let name = name.to_string();
-            let name = format_ident!("{}EventInput", name);
-            let field: Vec<_> = event
-                .inputs
-                .iter()
-                .map(|f| {
-                    let property = make_struct_property(Some(f.name.to_string()), &f.ty);
-                    let name_ident = format_ident!("{}", f.name.to_string());
-                    let ty_ident = property.type_name();
-                    quote! {
-                        pub #name_ident: #ty_ident,
-                    }
-                })
-                .collect();
-        })
-        .collect();
+    // let structs: Vec<_> = contract
+    //     .events
+    //     .iter()
+    //     .map(|(name, event)| {
+    //         let name = name.to_string();
+    //         let name = format_ident!("{}EventInput", name);
+    //         let field: Vec<_> = event
+    //             .inputs
+    //             .iter()
+    //             .map(|f| {
+    //                 let property = make_struct_property(Some(f.name.to_string()), &f.ty);
+    //                 let name_ident = format_ident!("{}", f.name.to_string());
+    //                 let ty_ident = property.type_name();
+    //                 quote! {
+    //                     pub #name_ident: #ty_ident,
+    //                 }
+    //             })
+    //             .collect();
+    //     })
+    //     .collect();
+    let contract_name = format_ident!("{}", "test");
+    let header_type: syn::Type = syn::parse_str("everscale_types::abi::AbiHeaderType").unwrap();
+    let abi_type: syn::Type = syn::parse_str("everscale_types::abi::AbiVersion").unwrap();
+
+    let mut header_idents = Vec::<proc_macro2::TokenStream>::new();
+    for i in contract.headers.iter() {
+        let ty = match i {
+            AbiHeaderType::Expire => "everscale_types::abi::AbiHeaderType::Expire",
+            AbiHeaderType::PublicKey => "everscale_types::abi::AbiHeaderType::PublicKey",
+            AbiHeaderType::Time => "everscale_types::abi::AbiHeaderType::Time",
+        };
+        let ty: syn::Type = syn::parse_str(ty).expect("Failed to parse header type");
+        let quote = quote! {
+            #ty
+        };
+        header_idents.push(quote);
+    }
+
+    println!("we here2");
+    let slice_token = quote! {
+        [ #(#header_idents),* ]
+    };
+    println!("we here3");
 
     let quote = quote! {
-        #(#generated_structs)*
-        #(#generated_functions)*
+
+        mod #contract_name {
+
+            mod models {
+                #(#generated_structs)*
+            }
+
+            mod functions {
+                use super::models::*;
+                use super::*;
+
+                const HEADERS: &[#header_type] = &#slice_token;
+                const ABI_VERSION: #abi_type = <#abi_type>::new(2,2);
+
+                #(#generated_functions)*
+            }
+        }
     };
 
     quote.into()
@@ -71,19 +111,29 @@ fn process_function(
     structs: &mut Vec<proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
     let (input_name, input_tokens) = make_function_input_struct(function);
-    let (output_name, output_tokens) = make_function_output_struct(function);
+    //let (output_name, output_tokens) = make_function_output_struct(function);
+
+    let func = generate_func_body(function.name.as_ref());
+
+    structs.push(input_tokens);
+    //structs.push(output_tokens);
+    func
+}
+fn generate_func_body(name: &str) -> proc_macro2::TokenStream {
+    let function_name_ident = format_ident!("{}", name);
+
+    let mut header_tokens: Vec<proc_macro2::TokenStream> = Vec::new();
+
     let func = quote! {
-        fn #name() -> &'static everscale_types::abi::Function {
+        fn #function_name_ident() -> &'static everscale_types::abi::Function {
             static ONCE: std::sync::OnceLock<everscale_types::abi::Function> = std::sync::OnceLock::new();
             ONCE.get_or_init(|| {
-                FunctionBuilder::new(function.abi_version, function.name)
-                .with_headers(function.headers)
-                .build();
-            });
+                everscale_types::abi::FunctionBuilder::new(ABI_VERSION, #name)
+                .with_headers(HEADERS.to_vec())
+                .build()
+            })
         }
     };
-    structs.push(input_tokens);
-    structs.push(output_tokens);
     func
 }
 
@@ -91,7 +141,7 @@ fn make_function_input_struct(function: &Function) -> (String, proc_macro2::Toke
     let struct_name = format_ident!("{}FunctionInput", function.name.as_ref());
     let mut properties: Vec<proc_macro2::TokenStream> = Vec::new();
     for i in function.inputs.iter() {
-        let type_name = make_struct_property(Some(i.name.to_string()), &i.ty);
+        let type_name = make_struct_property(Some(i.name.to_string()), &i.ty, None);
         let property_name_ident = format_ident!("{}", i.name.as_ref());
         let ty_ident = type_name.type_name();
         let quote = quote! {
@@ -112,7 +162,7 @@ fn make_function_output_struct(function: &Function) -> (String, proc_macro2::Tok
     let struct_name = format_ident!("{}FunctionOutput", function.name.as_ref());
     let mut properties: Vec<proc_macro2::TokenStream> = Vec::new();
     for i in function.outputs.iter() {
-        let type_name = make_struct_property(Some(i.name.to_string()), &i.ty);
+        let type_name = make_struct_property(Some(i.name.to_string()), &i.ty, None);
         let property_name_ident = format_ident!("{}", i.name.as_ref());
         let ty_ident = type_name.type_name();
         let quote = quote! {
@@ -129,7 +179,11 @@ fn make_function_output_struct(function: &Function) -> (String, proc_macro2::Tok
     (struct_name.to_string(), func.into())
 }
 
-fn make_struct_property(initial_name: Option<String>, param: &AbiType) -> StructProperty {
+fn make_struct_property(
+    initial_name: Option<String>,
+    param: &AbiType,
+    &mut internal_structs: Option<Vec<StructProperty>>,
+) -> StructProperty {
     let mut name = initial_name.map(|x| x.to_string());
 
     match param {
@@ -174,8 +228,9 @@ fn make_struct_property(initial_name: Option<String>, param: &AbiType) -> Struct
         AbiType::Tuple(a) => {
             let mut structs: Vec<StructProperty> = Vec::new();
             for i in a.iter() {
-                let name = i.name.clone();
-                let property = make_struct_property(Some(name.to_string()), &i.ty);
+                //let name = i.name.clone();
+                let property =
+                    make_struct_property(Some(i.name.to_string()), &i.ty, &mut Some(structs));
                 structs.push(property);
             }
             return StructProperty::Tuple {

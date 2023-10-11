@@ -250,12 +250,17 @@ version = "0.1.0-rc.5"
 source = "git+https://github.com/broxus/everscale-types#c12952c497a09b27b39b9c2cf7d193e0db13d17d"
 dependencies = [
  "ahash",
+ "anyhow",
  "base64",
  "bitflags",
+ "bytes",
  "crc32c",
+ "ed25519-dalek",
  "everscale-crypto",
  "everscale-types-proc 0.1.4 (git+https://github.com/broxus/everscale-types)",
  "hex",
+ "num-bigint",
+ "num-traits",
  "once_cell",
  "serde",
  "sha2",
