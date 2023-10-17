@@ -6,6 +6,7 @@ use std::fs::{read_to_string, File};
 use std::path::PathBuf;
 
 use crate::StructProperty::Simple;
+use case::CaseExt;
 use everscale_types::abi::{
     AbiHeaderType, AbiType, AbiVersion, Contract, Function, FunctionBuilder, PlainAbiType,
 };
@@ -84,6 +85,9 @@ pub fn abi(input: TokenStream) -> TokenStream {
     let quote = quote! {
 
         mod #contract_name {
+            use nekoton_abi::{UnpackAbi, UnpackAbiPlain, PackAbi, PackAbiPlain, KnownParamType, KnownParamTypePlain, UnpackerError, UnpackerResult, BuildTokenValue, FunctionBuilder, EventBuilder, TokenValueExt};
+            use ton_abi::{Param, ParamType};
+            use std::collections::HashMap;
 
             #(#generated_structs)*
 
@@ -178,20 +182,33 @@ impl StructGen {
         &mut self,
         function: &Function,
     ) -> (String, proc_macro2::TokenStream) {
-        let struct_name = format_ident!("{}FunctionInput", function.name.as_ref());
+        let struct_name = format_ident!("{}FunctionInput", function.name.as_ref().to_camel());
         let mut properties = Vec::<proc_macro2::TokenStream>::new();
         for i in function.inputs.iter() {
             let type_name = self.make_struct_property_with_internal(i.name.to_string(), &i.ty);
-            let property_name_ident = format_ident!("{}", i.name.as_ref());
+            let property_name = i.name.as_ref().to_snake();
+            let rust_property_name_ident = format_ident!("{}", property_name);
+            let contract_name = i.name.as_ref();
+            let derive = if property_name == contract_name {
+                quote! {
+                    #[abi]
+                }
+            } else {
+                quote! {
+                   #[abi(name = #property_name)]
+                }
+            };
             let ty_ident = type_name.type_name();
             let quote = quote! {
-                pub #property_name_ident: #ty_ident,
+                #derive
+                pub #rust_property_name_ident: #ty_ident,
             };
             properties.push(quote.into());
             properties.extend_from_slice(self.internal_structs.as_slice());
         }
 
         let func = quote! {
+            #[derive(UnpackAbiPlain, PackAbi, KnownParamTypePlain)]
             pub struct #struct_name {
                 #(#properties)*
             }
@@ -273,16 +290,29 @@ impl StructGen {
                 let mut internal_properties: Vec<proc_macro2::TokenStream> = Vec::new();
 
                 for p in &structs {
-                    let internal_property_name_ident = format_ident!("{}", p.name().as_str());
+                    let name = p.name();
+                    let rust_property_name_ident = format_ident!("{}", name.as_str().to_snake());
+                    let derive = if rust_property_name_ident == name {
+                        quote! {
+                            #[abi]
+                        }
+                    } else {
+                        quote! {
+                           #[abi(name = #name)]
+                        }
+                    };
                     let internal_ident = p.type_name();
                     let quote = quote! {
-                        pub #internal_property_name_ident: #internal_ident,
+                        #derive
+                        pub #rust_property_name_ident: #internal_ident,
                     };
                     internal_properties.push(quote);
                 }
                 let name = name.unwrap_or_default();
-                let struct_name_ident = format_ident!("{}", &name);
+                let struct_name_ident = format_ident!("{}", &name.to_camel());
                 let internal_struct = quote! {
+
+                    #[derive(UnpackAbi, PackAbi, KnownParamType)]
                     pub struct #struct_name_ident {
                         #(#internal_properties)*
                     }

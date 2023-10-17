@@ -6,6 +6,7 @@ version = 3
 name = "abi"
 version = "0.1.0"
 dependencies = [
+ "case",
  "everscale-types 0.1.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2",
  "quote",
@@ -77,6 +78,12 @@ name = "bytes"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2bd12c1caf447e69cd4528f47f94d203fd2582878ecb9e9465484c4148a8223"
+
+[[package]]
+name = "case"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd6c0e7b807d60291f42f33f58480c0bfafe28ed08286446f45e463728cf9c1c"
 
 [[package]]
 name = "cfg-if"
