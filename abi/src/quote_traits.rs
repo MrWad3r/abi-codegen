@@ -1,13 +1,13 @@
 use everscale_types::abi::{
-    AbiHeaderType, AbiType, AbiVersion, Contract, Function, FunctionBuilder, NamedAbiType,
-    PlainAbiType, WithAbiType,
+    AbiHeaderType, AbiType, AbiValue, AbiVersion, Contract, FromAbi, Function, FunctionBuilder,
+    IntoAbi, NamedAbiType, NamedAbiValue, PlainAbiType, WithAbiType,
 };
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use std::num::NonZeroU8;
 use syn::{parse_macro_input, DeriveInput, Expr, Result};
 
-fn implement_with_abi_type(
+pub fn implement_with_abi_type(
     struct_name: &str,
     properites: &[NamedAbiType],
 ) -> proc_macro2::TokenStream {
@@ -18,23 +18,112 @@ fn implement_with_abi_type(
         .iter()
         .map(|x| {
             let name = format_ident!("{}", x.name.as_ref());
+            let quote_abi_type = quote_abi_type(x.ty);
 
             quote! {
-                NamedAbiType::new(#name, AbiType)
+                NamedAbiType::new(#name, #quote_abi_type)
             }
         })
         .collect();
 
-    let props = quote! {
-        AbiType::Tuple(std::sync::Arc::new(  &[ #(#props_quote),* ]))
-    };
-
     quote! {
         impl WithAbiType for #name_ident {
             fn abi_type() -> AbiType {
-                 AbiType::Tuple(std::sync::Arc::new(#props))
+                 AbiType::Tuple(std::sync::Arc::new(  &[ #(#props_quote),* ]))
             }
         }
+    }
+}
+
+pub fn implement_from_abi(struct_name: &str, properites: &[String]) -> proc_macro2::TokenStream {
+    let mut props_quote = Vec::new();
+    let props: Vec<proc_macro2::TokenStream> = properites.iter().map(|x| {
+        let ident = format_ident!("{}", x);
+        quote! {
+            pub #ident: iterator.next().ok_or(everscale_types::abi::error::AbiError::TypeMismatch {expected: Box::from(#x), ty: "None"})?
+        }
+    }).collect();
+
+    quote! {
+        impl FromAbi for #struct_name {
+            fn from_abi(value: AbiValue) -> Result<Self> {
+                match value {
+                    AbiValue::Tuple(properties) =>  {
+                        let iterator = properties.iter();
+                        Ok(
+                            #struct_name {
+                                #(#props),*
+                            }
+                        )
+
+                    },
+                    _ => Err(anyhow::Error::from(
+                        everscale_types::abi::error::AbiError::TypeMismatch {
+                            expected: Box::from("tuple"),
+                            ty: value.display_type().to_string().into(),
+                        },
+                    )),
+                }
+            }
+        }
+    }
+}
+
+pub fn implement_into_abi(
+    struct_name: &str,
+    properties: &[(String, AbiType)],
+) -> proc_macro2::TokenStream {
+    let mut props: Vec<proc_macro2::TokenStream> = Vec::new();
+    NamedAbiValue {
+        name: Arc::new(()),
+        value: AbiValue::Tuple(),
+    }
+
+    for (name, ty) in properties {
+        let name_ident = format_ident!("{}", name);
+        quote! {
+            NamedAbiValue::new(self.#name_ident
+        }
+    }
+
+    let quote = quote! {
+        impl IntoAbi for Test {
+            fn as_abi(&self) -> AbiValue {
+                let mut props: Vec<NamedAbiValue> = Vec::new();
+
+
+
+
+                //AbiValue::Tuple()
+            }
+
+            fn into_abi(self) -> AbiValue
+            where
+                Self: Sized,
+            {
+            }
+        }
+    };
+
+    quote
+}
+
+pub struct Test {
+    x: u32,
+    y: String,
+}
+
+impl IntoAbi for Test {
+    fn as_abi(&self) -> AbiValue {
+        let mut props: Vec<NamedAbiValue> = Vec::new();
+
+        //AbiValue::Tuple()
+    }
+
+    fn into_abi(self) -> AbiValue
+    where
+        Self: Sized,
+    {
     }
 }
 

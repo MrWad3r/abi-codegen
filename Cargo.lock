@@ -6,6 +6,7 @@ version = 3
 name = "abi"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "case",
  "everscale-types 0.1.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2",

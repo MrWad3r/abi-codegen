@@ -16,6 +16,7 @@ use quote::{format_ident, quote};
 use std::collections::HashSet;
 use syn::{parse_macro_input, DeriveInput, Expr, Result};
 
+mod from_abi;
 mod quote_traits;
 
 #[proc_macro]
@@ -147,6 +148,8 @@ fn generate_func_body(name: &str) -> proc_macro2::TokenStream {
 struct StructGen {
     unique_tokes: std::collections::HashMap<String, Vec<NamedAbiType>>,
     internal_structs_idents: Vec<proc_macro2::TokenStream>,
+
+    impl_traits: Vec<proc_macro2::TokenStream>,
 }
 
 impl StructGen {
@@ -154,6 +157,8 @@ impl StructGen {
         Self {
             unique_tokes: std::collections::HashMap::new(),
             internal_structs_idents: Vec::new(),
+
+            impl_traits: Vec::new(),
         }
     }
 
@@ -163,7 +168,7 @@ impl StructGen {
     ) -> (String, proc_macro2::TokenStream) {
         let struct_name = format_ident!("{}FunctionOutput", function.name.as_ref());
 
-        let mut properties = Vec::<proc_macro2::TokenStream>::new();
+        let mut properties = std::collections::HashMap::<String, proc_macro2::TokenStream>::new();
         for i in function.outputs.iter() {
             let type_name = self.make_struct_property_with_internal(i.name.to_string(), &i.ty);
             let property_name_ident = format_ident!("{}", i.name.as_ref());
@@ -187,38 +192,55 @@ impl StructGen {
         &mut self,
         function: &Function,
     ) -> (String, proc_macro2::TokenStream) {
-        let struct_name = format_ident!("{}FunctionInput", function.name.as_ref().to_camel());
-        let mut properties = Vec::<proc_macro2::TokenStream>::new();
+        let struct_name = function.name.as_ref().to_camel();
+        let struct_name_ident = format_ident!("{}FunctionInput", struct_name);
+
+        let mut properties = Vec::<(String, proc_macro2::TokenStream)>::new();
+
         for i in function.inputs.iter() {
             let strunct_property =
                 self.make_struct_property_with_internal(i.name.to_string(), &i.ty);
-            let property_name = i.name.as_ref().to_snake();
-            let rust_property_name_ident = format_ident!("{}", property_name);
+            let rust_name = i.name.as_ref().to_snake();
             let contract_name = i.name.as_ref();
-            let derive = if property_name == contract_name {
+            let derive = if rust_name == contract_name {
                 quote! {
                     #[abi]
                 }
             } else {
                 quote! {
-                   #[abi(name = #property_name)]
+                   #[abi(name = #rust_name)]
                 }
             };
 
+            let rust_property_name_ident = format_ident!("{}", &rust_name);
             let ty_ident = strunct_property.type_name();
+
             let quote = quote! {
                 #derive
                 pub #rust_property_name_ident: #ty_ident,
             };
-            properties.push(quote.into());
+            properties.push((rust_name, quote.into()));
             properties.extend_from_slice(self.internal_structs_idents.as_slice());
         }
 
+        let properties_names: Vec<_> = properties.iter().map(|(name, _)| name.clone()).collect();
+
+        let impl_from_abi =
+            quote_traits::implement_from_abi(struct_name, properties_names.as_slice());
+
+        let impl_with_abi_type =
+            quote_traits::implement_with_abi_type(struct_name, function.inputs.to_vec().as_slice());
+
+        let properties_tokens: Vec<_> = properties.iter().map(|(_, value)| value.clone()).collect();
         let func = quote! {
             #[derive(UnpackAbiPlain, PackAbi, KnownParamTypePlain)]
-            pub struct #struct_name {
-                #(#properties)*
+            pub struct #struct_name_ident {
+                #(#properties_tokens)*
             }
+
+            #impl_from_abi
+
+            #impl_with_abi_type
         };
 
         (struct_name.to_string(), func.into())
@@ -316,7 +338,8 @@ impl StructGen {
                     internal_properties.push(quote);
                 }
                 let name = name.unwrap_or_default();
-                let struct_name_ident = format_ident!("{}", &name.to_camel());
+                let camel_case_struct_name = name.to_camel();
+                let struct_name_ident = format_ident!("{}", &camel_case_struct_name);
                 let internal_struct = quote! {
 
                     #[derive(UnpackAbi, PackAbi, KnownParamType)]
@@ -325,7 +348,9 @@ impl StructGen {
                     }
                 };
                 self.internal_structs_idents.push(internal_struct);
-                self.unique_tokes.insert(name.clone(), a.to_vec());
+                let impl_with_abi_quote =
+                    quote_traits::implement_with_abi_type(&camel_case_struct_name, a);
+                //self.unique_tokes.insert(name.clone(), a.to_vec());
 
                 return StructProperty::Tuple {
                     name: name,
@@ -390,20 +415,20 @@ impl StructGen {
     }
 }
 
-fn check_duplicates(left: &[NamedAbiType], right: &[NamedAbiType]) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-
-    let set = HashSet::from_iter(right.iter());
-
-    for i in left {
-        if !set.contains(i) {
-            return false;
-        }
-    }
-    true
-}
+// fn check_duplicates(left: &[NamedAbiType], right: &[NamedAbiType]) -> bool {
+//     if left.len() != right.len() {
+//         return false;
+//     }
+//
+//     let set = HashSet::from_iter(right.iter());
+//
+//     for i in left {
+//         if !set.contains(i) {
+//             return false;
+//         }
+//     }
+//     true
+// }
 
 enum StructProperty {
     Simple {
