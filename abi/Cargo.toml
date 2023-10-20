@@ -11,6 +11,8 @@ proc-macro = true
 
 [dependencies]
 anyhow = "1.0"
+num-bigint = "0.4.4"
+
 everscale-types = {version = "0.1.0-rc.5", features = ["abi", "models"]}
 case = "1.0.0"
 proc-macro2 = "1.0"
