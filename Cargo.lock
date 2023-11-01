@@ -8,7 +8,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "case",
- "everscale-types 0.1.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "everscale-types 0.1.0-rc.6",
  "num-bigint",
  "proc-macro2",
  "quote",
@@ -21,7 +21,7 @@ name = "abi-codegen"
 version = "0.1.0"
 dependencies = [
  "abi",
- "everscale-types 0.1.0-rc.5 (git+https://github.com/broxus/everscale-types)",
+ "everscale-types 0.1.0-rc.5",
 ]
 
 [[package]]
@@ -230,8 +230,7 @@ dependencies = [
 [[package]]
 name = "everscale-types"
 version = "0.1.0-rc.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c169baf8bc73102a0018478ff15530ae7334d113bd7b7a9da056189be12ded07"
+source = "git+https://github.com/broxus/everscale-types#c12952c497a09b27b39b9c2cf7d193e0db13d17d"
 dependencies = [
  "ahash",
  "anyhow",
@@ -241,7 +240,7 @@ dependencies = [
  "crc32c",
  "ed25519-dalek",
  "everscale-crypto",
- "everscale-types-proc 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "everscale-types-proc 0.1.4 (git+https://github.com/broxus/everscale-types)",
  "hex",
  "num-bigint",
  "num-traits",
@@ -255,8 +254,9 @@ dependencies = [
 
 [[package]]
 name = "everscale-types"
-version = "0.1.0-rc.5"
-source = "git+https://github.com/broxus/everscale-types#c12952c497a09b27b39b9c2cf7d193e0db13d17d"
+version = "0.1.0-rc.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff3c058b07bdb5414da10bc8a2489715e31b0c3f4274a213c1a23831e9d94e91"
 dependencies = [
  "ahash",
  "anyhow",
@@ -266,7 +266,7 @@ dependencies = [
  "crc32c",
  "ed25519-dalek",
  "everscale-crypto",
- "everscale-types-proc 0.1.4 (git+https://github.com/broxus/everscale-types)",
+ "everscale-types-proc 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex",
  "num-bigint",
  "num-traits",
