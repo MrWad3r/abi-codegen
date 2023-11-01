@@ -1,4 +1,4 @@
-extern crate abi;
+//extern crate abi;
 use abi::abi;
 
 abi!("abi.json");

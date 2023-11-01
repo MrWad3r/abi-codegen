@@ -89,10 +89,8 @@ pub fn abi(input: TokenStream) -> TokenStream {
     let quote = quote! {
 
         mod #contract_name {
-            use nekoton_abi::{
-                UnpackerError, UnpackerResult, BuildTokenValue, FunctionBuilder, EventBuilder, TokenValueExt
-            };
-            use ton_abi::{Param, ParamType};
+            use nekoton_abi::{BuildTokenValue, FunctionBuilder, EventBuilder, TokenValueExt};
+            //use ton_abi::{Param, ParamType};
             use std::collections::HashMap;
 
             #(#generated_structs)*
