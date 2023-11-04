@@ -35,10 +35,20 @@ pub fn abi(input: TokenStream) -> TokenStream {
 
     contract.functions.iter().for_each(|(name, function)| {
         let name = name.to_string();
-        let function_token =
-            process_function(name, function, &mut struct_gen, &mut generated_structs);
+        let (function_token, generated_types) = struct_gen.process_function(name, function);
         generated_functions.push(function_token);
+        generated_structs.extend_from_slice(generated_types.as_slice());
     });
+
+    let trait_gen = quote_traits::TraitImplGen::new();
+
+    let mut trait_implementations: Vec<proc_macro2::TokenStream> = Vec::new();
+
+    for (index, (name, properties)) in struct_gen.generated_structs.iter().enumerate() {
+        let struct_traits = trait_gen.implement_traits(&name, properties.as_slice());
+        trait_implementations.push(struct_traits)
+    }
+    println!("we here7");
 
     // let structs: Vec<_> = contract
     //     .events
@@ -90,10 +100,12 @@ pub fn abi(input: TokenStream) -> TokenStream {
 
         mod #contract_name {
             use nekoton_abi::{BuildTokenValue, FunctionBuilder, EventBuilder, TokenValueExt};
-            //use ton_abi::{Param, ParamType};
-            use std::collections::HashMap;
+            use everscale_types::abi::{NamedAbiType, AbiType, WithAbiType, IntoAbi, AbiValue, NamedAbiValue};
+
 
             #(#generated_structs)*
+
+            #(#trait_implementations)*
 
             // mod functions {
             //     use super::*;
@@ -109,61 +121,64 @@ pub fn abi(input: TokenStream) -> TokenStream {
     quote.into()
 }
 
-fn process_function(
-    name: String,
-    function: &Function,
-    struct_gen: &mut StructGen,
-    structs: &mut Vec<proc_macro2::TokenStream>,
-) -> proc_macro2::TokenStream {
-    let (input_name, input_tokens) = struct_gen.make_function_input_struct(function);
-    //let (output_name, output_tokens) = struct_gen.make_function_output_struct(function);
-
-    let func = generate_func_body(input_name.as_str());
-
-    for i in struct_gen.temporary_internal_structs_idents.iter() {
-        structs.push(i.clone());
-    }
-
-    structs.push(input_tokens);
-    //structs.push(output_tokens);
-
-    struct_gen.temporary_internal_structs_idents.clear();
-    func
-}
-fn generate_func_body(name: &str) -> proc_macro2::TokenStream {
-    let function_name_ident = format_ident!("{}", name);
-
-    let mut header_tokens: Vec<proc_macro2::TokenStream> = Vec::new();
-
-    let func = quote! {
-        fn #function_name_ident() -> &'static everscale_types::abi::Function {
-            static ONCE: std::sync::OnceLock<everscale_types::abi::Function> = std::sync::OnceLock::new();
-            ONCE.get_or_init(|| {
-                everscale_types::abi::FunctionBuilder::new(ABI_VERSION, #name)
-                .with_headers(HEADERS)
-                .build()
-            })
-        }
-    };
-    func
-}
-
 struct StructGen {
-    pub unique_tokes: std::collections::HashMap<WithoutName<AbiType>, StructProperty>,
+    generated_structs: std::collections::HashMap<String, Vec<NamedAbiType>>,
 
-    pub temporary_internal_structs_idents: Vec<proc_macro2::TokenStream>,
-
-    pub impl_traits: Vec<proc_macro2::TokenStream>,
+    unique_tokes: std::collections::HashMap<WithoutName<AbiType>, StructProperty>,
+    temporary_internal_structs_idents: Vec<proc_macro2::TokenStream>,
 }
 
 impl StructGen {
+    fn generated_structs(&self) -> &std::collections::HashMap<String, Vec<NamedAbiType>> {
+        &self.generated_structs
+    }
+
     fn new() -> Self {
         Self {
             unique_tokes: std::collections::HashMap::new(),
             temporary_internal_structs_idents: Vec::new(),
 
-            impl_traits: Vec::new(),
+            generated_structs: std::collections::HashMap::new(),
         }
+    }
+
+    fn process_function(
+        &mut self,
+        name: String,
+        function: &Function,
+    ) -> (proc_macro2::TokenStream, Vec<proc_macro2::TokenStream>) {
+        let mut generated_types = Vec::new();
+        let (input_name, input_tokens) = self.make_function_input_struct(function);
+        //let (output_name, output_tokens) = struct_gen.make_function_output_struct(function);
+
+        let func = self.generate_func_body(input_name.as_str());
+
+        for i in self.temporary_internal_structs_idents.iter() {
+            generated_types.push(i.clone());
+        }
+
+        generated_types.push(input_tokens);
+        //structs.push(output_tokens);
+
+        self.temporary_internal_structs_idents.clear();
+        (func, generated_types)
+    }
+    fn generate_func_body(&self, name: &str) -> proc_macro2::TokenStream {
+        let function_name_ident = format_ident!("{}", name);
+
+        let mut header_tokens: Vec<proc_macro2::TokenStream> = Vec::new();
+
+        let func = quote! {
+            fn #function_name_ident() -> &'static everscale_types::abi::Function {
+                static ONCE: std::sync::OnceLock<everscale_types::abi::Function> = std::sync::OnceLock::new();
+                ONCE.get_or_init(|| {
+                    everscale_types::abi::FunctionBuilder::new(ABI_VERSION, #name)
+                    .with_headers(HEADERS)
+                    .build()
+                })
+            }
+        };
+        func
     }
 
     fn make_function_output_struct(
@@ -200,8 +215,8 @@ impl StructGen {
         &mut self,
         function: &Function,
     ) -> (String, proc_macro2::TokenStream) {
-        let struct_name = function.name.as_ref().to_camel();
-        let struct_name_ident = format_ident!("{}FunctionInput", struct_name);
+        let struct_name = format!("{}FunctionInput", function.name.as_ref().to_camel());
+        let struct_name_ident = format_ident!("{}", struct_name);
 
         let mut properties = Vec::<proc_macro2::TokenStream>::new();
 
@@ -243,6 +258,11 @@ impl StructGen {
                 #(#properties_tokens)*
             }
         };
+
+        if !self.generated_structs.contains_key(&struct_name) {
+            self.generated_structs
+                .insert(struct_name.clone(), function.inputs.to_vec());
+        }
 
         (struct_name.to_string(), func.into())
     }
@@ -363,9 +383,17 @@ impl StructGen {
                     name: name,
                     fields: structs,
                 };
+
                 //println!("Adding internal strunct: {:?}", &without_name);
-                self.unique_tokes
-                    .insert(without_name.clone(), property.clone());
+                {
+                    self.unique_tokes
+                        .insert(without_name.clone(), property.clone());
+
+                    if !self.generated_structs.contains_key(&camel_case_struct_name) {
+                        self.generated_structs
+                            .insert(camel_case_struct_name, a.to_vec());
+                    }
+                }
 
                 return property;
             }
