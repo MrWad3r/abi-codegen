@@ -1,11 +1,9 @@
 extern crate proc_macro;
 
-use std::fmt::format;
 use std::fs;
-use std::fs::{read_to_string, File};
+use std::fs::File;
 use std::path::PathBuf;
 
-use crate::StructProperty::{HashMap, Simple};
 use case::CaseExt;
 use everscale_types::abi::{
     AbiHeaderType, AbiType, AbiVersion, Contract, Function, FunctionBuilder, IgnoreName,
@@ -13,10 +11,7 @@ use everscale_types::abi::{
 };
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use std::collections::HashSet;
-use syn::{parse_macro_input, DeriveInput, Expr, Result};
 
-mod from_abi;
 mod quote_traits;
 
 #[proc_macro]
@@ -44,11 +39,10 @@ pub fn abi(input: TokenStream) -> TokenStream {
 
     let mut trait_implementations: Vec<proc_macro2::TokenStream> = Vec::new();
 
-    for (index, (name, properties)) in struct_gen.generated_structs.iter().enumerate() {
+    for (name, properties) in struct_gen.generated_structs.iter() {
         let struct_traits = trait_gen.implement_traits(&name, properties.as_slice());
         trait_implementations.push(struct_traits)
     }
-    println!("we here7");
 
     // let structs: Vec<_> = contract
     //     .events
@@ -107,14 +101,14 @@ pub fn abi(input: TokenStream) -> TokenStream {
 
             #(#trait_implementations)*
 
-            // mod functions {
-            //     use super::*;
-            //
-            //     const HEADERS: [#header_type; #header_count] = #slice_token;
-            //     const ABI_VERSION: #abi_type = <#abi_type>::new(#major, #minor);
-            //
-            //     #(#generated_functions)*
-            // }
+            mod functions {
+                use super::*;
+
+                const HEADERS: [#header_type; #header_count] = #slice_token;
+                const ABI_VERSION: #abi_type = <#abi_type>::new(#major, #minor);
+
+                #(#generated_functions)*
+            }
         }
     };
 
@@ -381,7 +375,7 @@ impl StructGen {
                 //quote_traits::implement_with_abi_type(&camel_case_struct_name, a);
                 let property = StructProperty::Tuple {
                     name: name,
-                    fields: structs,
+                    //fields: structs,
                 };
 
                 //println!("Adding internal strunct: {:?}", &without_name);
@@ -478,7 +472,7 @@ enum StructProperty {
     },
     Tuple {
         name: String,
-        fields: Vec<StructProperty>,
+        //fields: Vec<StructProperty>,
     },
     Array {
         name: String,
@@ -513,13 +507,6 @@ impl StructProperty {
                 let value = value.type_name();
                 syn::parse_quote!(std::collections::HashMap<#key, #value>)
             }
-        }
-    }
-
-    pub fn is_tuple(&self) -> bool {
-        match &self {
-            &StructProperty::Tuple { .. } => true,
-            _ => false,
         }
     }
 
