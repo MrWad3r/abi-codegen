@@ -94,21 +94,22 @@ pub fn abi(input: TokenStream) -> TokenStream {
 
         mod #contract_name {
             use nekoton_abi::{BuildTokenValue, FunctionBuilder, EventBuilder, TokenValueExt};
-            use everscale_types::abi::{NamedAbiType, AbiType, WithAbiType, IntoAbi, AbiValue, NamedAbiValue};
+            use everscale_types::abi::{NamedAbiType, AbiType, WithAbiType, IntoAbi, IntoPlainAbi, AbiValue, NamedAbiValue};
+            use num_bigint::{BigInt, BigUint};
 
 
             #(#generated_structs)*
 
             #(#trait_implementations)*
 
-            mod functions {
-                use super::*;
-
-                const HEADERS: [#header_type; #header_count] = #slice_token;
-                const ABI_VERSION: #abi_type = <#abi_type>::new(#major, #minor);
-
-                #(#generated_functions)*
-            }
+            // mod functions {
+            //     use super::*;
+            //
+            //     const HEADERS: [#header_type; #header_count] = #slice_token;
+            //     const ABI_VERSION: #abi_type = <#abi_type>::new(#major, #minor);
+            //
+            //     #(#generated_functions)*
+            // }
         }
     };
 
@@ -197,6 +198,7 @@ impl StructGen {
         }
 
         let func = quote! {
+            #[derive(Clone)]
             pub struct #struct_name {
                 #(#properties)*
             }
@@ -248,6 +250,7 @@ impl StructGen {
 
         let properties_tokens: Vec<_> = properties.iter().map(|value| value.clone()).collect();
         let func = quote! {
+            #[derive(Clone)]
             pub struct #struct_name_ident {
                 #(#properties_tokens)*
             }
@@ -364,6 +367,7 @@ impl StructGen {
 
                 let internal_struct = quote! {
 
+                    #[derive(Clone)]
                     pub struct #struct_name_ident {
                         #(#internal_properties)*
                     }

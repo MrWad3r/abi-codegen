@@ -23,6 +23,7 @@ dependencies = [
  "abi",
  "everscale-types 0.1.0-rc.5",
  "nekoton-abi",
+ "num-bigint",
 ]
 
 [[package]]

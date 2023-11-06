@@ -7,3 +7,4 @@ edition = "2021"
 everscale-types = {git = "https://github.com/broxus/everscale-types", features = ["abi", "models"]}
 abi = {path = "abi"}
 nekoton-abi = { git = "https://github.com/broxus/nekoton.git" }
+num-bigint = "0.4.4"
