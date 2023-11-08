@@ -1,7 +1,9 @@
+use crate::StructProperty;
 use case::CaseExt;
 use everscale_types::abi::{
     AbiHeaderType, AbiType, AbiValue, AbiVersion, Contract, FromAbi, Function, FunctionBuilder,
-    IntoAbi, IntoPlainAbi, NamedAbiType, NamedAbiValue, PlainAbiType, PlainAbiValue, WithAbiType,
+    IgnoreName, IntoAbi, IntoPlainAbi, NamedAbiType, NamedAbiValue, PlainAbiType, PlainAbiValue,
+    WithAbiType, WithoutName,
 };
 use everscale_types::models::IntAddr;
 use num_bigint::{BigInt, BigUint};
@@ -21,20 +23,21 @@ impl TraitImplGen {
         &self,
         name: &str,
         properties: &[NamedAbiType],
+        unique_tokens: &std::collections::HashMap<AbiType, StructProperty>,
     ) -> proc_macro2::TokenStream {
-        let with_abi_type_impls = self.implement_with_abi_type(name, properties);
-        let into_abi_impls = self.implement_into_abi(name, properties);
-        //let from_abi_impls = self.implement_from_abi(name, properties);
+        //let with_abi_type_impls = self.implement_with_abi_type(name, properties);
+        //let into_abi_impls = self.implement_into_abi(name, properties);
+        let from_abi_impls = self.implement_from_abi(name, properties, unique_tokens);
 
         quote! {
             //WithAbiType implementations
             //#with_abi_type_impls
 
             //IntoAbi implementations
-            #into_abi_impls
+            //#into_abi_impls
 
             //FromAbi implementations
-            //#from_abi_impls
+            #from_abi_impls
         }
     }
 
@@ -75,43 +78,58 @@ impl TraitImplGen {
         }
     }
 
-    // pub fn implement_from_abi(
-    //     &self,
-    //     struct_name: &str,
-    //     properites: &[NamedAbiType],
-    // ) -> proc_macro2::TokenStream {
-    //     let struct_name_ident = format_ident!("{}", struct_name);
-    //     let props: Vec<proc_macro2::TokenStream> = properites.iter().map(|x| {
-    //         let ident = format_ident!("{}", x.name.to_snake());
-    //         quote! {
-    //             pub #ident: iterator.next().ok_or(everscale_types::abi::error::AbiError::TypeMismatch {expected: std::boxed::Box::from(#x), ty: "None"})?
-    //         }
-    //     }).collect();
-    //
-    //     quote! {
-    //         impl FromAbi for #struct_name_ident {
-    //             fn from_abi(value: AbiValue) -> Result<Self> {
-    //                 match value {
-    //                     AbiValue::Tuple(properties) =>  {
-    //                         let iterator = properties.iter();
-    //                         Ok(
-    //                             #struct_name_ident {
-    //                                 #(#props),*
-    //                             }
-    //                         )
-    //
-    //                     },
-    //                     _ => Err(anyhow::Error::from(
-    //                         everscale_types::abi::error::AbiError::TypeMismatch {
-    //                             expected: Box::from("tuple"),
-    //                             ty: value.display_type().to_string().into(),
-    //                         },
-    //                     )),
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+    pub fn implement_from_abi(
+        &self,
+        struct_name: &str,
+        properites: &[NamedAbiType],
+        unique_tokens: &std::collections::HashMap<AbiType, StructProperty>,
+    ) -> proc_macro2::TokenStream {
+        let struct_name_ident = format_ident!("{}", struct_name);
+        let props: Vec<proc_macro2::TokenStream> = properites.iter().map(|x| {
+            let ident = format_ident!("{}", x.name.to_snake());
+            unique_tokens.get(&x.ty).map(|struct_property| {
+                let type_name = struct_property.type_name_quote();
+
+                quote! {
+                    #ident: {
+                        let value = iterator.next().ok_or(everscale_types::abi::error::AbiError::TypeMismatch { expected: std::boxed::Box::<str>::from("Some"), ty: "None"})?;
+                        <#type_name>::from_abi(value)?
+                    },
+                }
+            })
+
+        }).filter_map(|x|x).collect();
+
+        let props_vec = quote! {
+            #(#props)*
+        };
+
+        let props = props.clone();
+
+        quote! {
+            impl FromAbi for #struct_name_ident {
+                fn from_abi(value: AbiValue) -> Result<Self> {
+                    match value {
+                        AbiValue::Tuple(properties) =>  {
+                            let iterator = properties.iter();
+                            Ok(
+                                #struct_name_ident {
+                                    #props_vec
+                                }
+                            )
+
+                        },
+                        _ => Err(anyhow::Error::from(
+                            everscale_types::abi::error::AbiError::TypeMismatch {
+                                expected: std::boxed::Box::<str>::from("tuple"),
+                                ty: value.display_type().to_string().into(),
+                            },
+                        )),
+                    }
+                }
+            }
+        }
+    }
 
     pub fn implement_into_abi(
         &self,
@@ -394,80 +412,3 @@ fn make_abi_type(name: &str, abi_type: AbiType) -> proc_macro2::TokenStream {
         NamedAbiType::new(#name, #abi_type)
     }
 }
-
-// struct Test {
-//     pub x: BigUint,
-//     pub y: String
-// }
-//
-// impl FromAbi for Test {
-//     fn from_abi(value: AbiValue) -> Result<Self> {
-//         match value {
-//             AbiValue::Tuple(properties) =>  {
-//                 let iterator = properties.iter();
-//                 if let Some(next) = iterator.next() {
-//
-//
-//                 Ok(
-//                     Test {
-//                         x: ,
-//                         y: iterator.next().ok_or(everscale_types::abi::error::AbiError::TypeMismatch {expected: std::boxed::Box::from(#x), ty: "None"})?,
-//                     }
-//                 )
-//
-//             },
-//             _ => Err(anyhow::Error::from(
-//                 everscale_types::abi::error::AbiError::TypeMismatch {
-//                     expected: Box::from("tuple"),
-//                     ty: value.display_type().to_string().into(),
-//                 },
-//             )),
-//         }
-//     }
-//     }
-// }
-
-// fn get_type_name(initial_name: &str, param: &NamedAbiType) -> String {
-//     match param.ty {
-//         &AbiType::String => "String",
-//         &AbiType::Array(ty) | &AbiType::FixedArray(ty, ..) => {
-//             let inner = get_type_name(param.name, &ty);
-//             format!("Vec<{}>", inner);
-//         }
-//         &AbiType::Uint(size) => {
-//             match size {
-//                 8 => "u8",
-//                 16 => "u16",
-//                 32 => "u32",
-//                 64 => "u64",
-//                 128 => "u128",
-//                 160 => "[u8; 20]",
-//                 256 => "everscale_types::prelude::HashBytes",
-//                 _ => "num_bigint::BigUint",
-//             }
-//         },
-//         &AbiType::VarUint(_) | &AbiType::VarInt(_) => "num_bigint::BigUint",
-//         &AbiType::Tuple(_) => initial_name.to_camel(),
-//         &AbiType::Int(size) => {
-//             match size {
-//                 8 => "i8",
-//                 16 => "i16",
-//                 32 => "i32",
-//                 64 => "i64",
-//                 128 => "i128",
-//                 _ => "num_bigint::BigInt",
-//             }
-//         },
-//         &AbiType::Bool => "bool",
-//         &AbiType::Cell => "everscale_types::prelude::Cell",
-//         &AbiType::Map(key, value) => {
-//
-//         },
-//         &AbiType::Address => "everscale_types::models::IntAddr",
-//         &AbiType::Bytes | &AbiType::FixedBytes(size) => "Vec<u8>",
-//         &AbiType::Token => "everscale_types::num::Tokens",
-//         &AbiType::Optional(ty) => {
-//             let inner = get_type_name(ty)
-//         }
-//     }
-// }

@@ -40,7 +40,8 @@ pub fn abi(input: TokenStream) -> TokenStream {
     let mut trait_implementations: Vec<proc_macro2::TokenStream> = Vec::new();
 
     for (name, properties) in struct_gen.generated_structs.iter() {
-        let struct_traits = trait_gen.implement_traits(&name, properties.as_slice());
+        let struct_traits =
+            trait_gen.implement_traits(&name, properties.as_slice(), &struct_gen.unique_tokes);
         trait_implementations.push(struct_traits)
     }
 
@@ -93,9 +94,11 @@ pub fn abi(input: TokenStream) -> TokenStream {
     let quote = quote! {
 
         mod #contract_name {
+            use anyhow::Result;
             use nekoton_abi::{BuildTokenValue, FunctionBuilder, EventBuilder, TokenValueExt};
-            use everscale_types::abi::{NamedAbiType, AbiType, WithAbiType, IntoAbi, IntoPlainAbi, AbiValue, NamedAbiValue};
+            use everscale_types::abi::{NamedAbiType, AbiType, WithAbiType, IntoAbi, IntoPlainAbi, FromAbi, AbiValue, NamedAbiValue};
             use num_bigint::{BigInt, BigUint};
+
 
 
             #(#generated_structs)*
@@ -118,8 +121,9 @@ pub fn abi(input: TokenStream) -> TokenStream {
 
 struct StructGen {
     generated_structs: std::collections::HashMap<String, Vec<NamedAbiType>>,
+    unique_tokes: std::collections::HashMap<AbiType, StructProperty>,
 
-    unique_tokes: std::collections::HashMap<WithoutName<AbiType>, StructProperty>,
+    //used only for one function
     temporary_internal_structs_idents: Vec<proc_macro2::TokenStream>,
 }
 
@@ -176,36 +180,38 @@ impl StructGen {
         func
     }
 
-    fn make_function_output_struct(
-        &mut self,
-        function: &Function,
-    ) -> (String, proc_macro2::TokenStream) {
-        let struct_name = format_ident!("{}FunctionOutput", function.name.as_ref());
-
-        let mut properties = Vec::<proc_macro2::TokenStream>::new();
-        for i in function.outputs.iter() {
-            if self.unique_tokes.contains_key(i.ty.ignore_name()) {
-                continue;
-            }
-            let type_name = self.make_struct_property_with_internal(i.name.to_string(), &i.ty);
-            let property_name_ident = format_ident!("{}", i.name.as_ref());
-            let ty_ident = type_name.type_name();
-            let quote = quote! {
-                pub #property_name_ident: #ty_ident,
-            };
-            //println!("Pushing output {}", &i.name);
-            self.temporary_internal_structs_idents.push(quote.into());
-        }
-
-        let func = quote! {
-            #[derive(Clone)]
-            pub struct #struct_name {
-                #(#properties)*
-            }
-        };
-
-        (struct_name.to_string(), func)
-    }
+    // fn make_function_output_struct(
+    //     &mut self,
+    //     function: &Function,
+    // ) -> (String, proc_macro2::TokenStream) {
+    //     let struct_name = format_ident!("{}FunctionOutput", function.name.as_ref());
+    //
+    //     let mut properties = Vec::<proc_macro2::TokenStream>::new();
+    //     for i in function.outputs.iter() {
+    //         if self.unique_tokes.contains_key(i.ty.ignore_name()) {
+    //             println!("Ignore name {:?}", i.ty.ignore_name());
+    //             continue;
+    //         }
+    //         let type_name = self.make_struct_property_with_internal(i.name.to_string(), &i.ty);
+    //
+    //         let property_name_ident = format_ident!("{}", i.name.as_ref());
+    //         let ty_ident = type_name.type_name_quote();
+    //         let quote = quote! {
+    //             pub #property_name_ident: #ty_ident,
+    //         };
+    //         //println!("Pushing output {}", &i.name);
+    //         self.temporary_internal_structs_idents.push(quote.into());
+    //     }
+    //
+    //     let func = quote! {
+    //         #[derive(Clone)]
+    //         pub struct #struct_name {
+    //             #(#properties)*
+    //         }
+    //     };
+    //
+    //     (struct_name.to_string(), func)
+    // }
 
     fn make_function_input_struct(
         &mut self,
@@ -214,15 +220,21 @@ impl StructGen {
         let struct_name = format!("{}FunctionInput", function.name.as_ref().to_camel());
         let struct_name_ident = format_ident!("{}", struct_name);
 
+        let function_tuple = AbiType::Tuple(function.inputs.clone());
+        let mut inner_fields = Vec::new();
+
         let mut properties = Vec::<proc_macro2::TokenStream>::new();
 
         for i in function.inputs.iter() {
-            let unique_token_key = i.ty.ignore_name();
-
-            let struct_property = match self.unique_tokes.get(unique_token_key) {
+            let struct_property = match self.unique_tokes.get(&i.ty) {
                 Some(struct_property) => struct_property.clone(),
                 None => self.make_struct_property_with_internal(i.name.to_string(), &i.ty),
             };
+
+            self.unique_tokes
+                .insert(i.ty.clone(), struct_property.clone());
+
+            inner_fields.push(struct_property.clone());
 
             let rust_name = i.name.as_ref().to_snake();
             let contract_name = i.name.as_ref();
@@ -237,7 +249,7 @@ impl StructGen {
             };
 
             let rust_property_name_ident = format_ident!("{}", &rust_name);
-            let ty_ident = struct_property.type_name();
+            let ty_ident = struct_property.type_name_quote();
 
             let quote = quote! {
                 #derive
@@ -256,11 +268,20 @@ impl StructGen {
             }
         };
 
+        if !inner_fields.is_empty() {
+            self.unique_tokes.insert(
+                function_tuple.clone(),
+                StructProperty::Tuple {
+                    name: struct_name.clone(),
+                    fields: inner_fields,
+                },
+            );
+        }
+
         if !self.generated_structs.contains_key(&struct_name) {
             self.generated_structs
                 .insert(struct_name.clone(), function.inputs.to_vec());
         }
-
         (struct_name.to_string(), func.into())
     }
 
@@ -278,11 +299,14 @@ impl StructGen {
         param: &AbiType,
     ) -> StructProperty {
         let mut name = initial_name.map(|x| x.to_string());
-        let without_name: &WithoutName<AbiType> = param.ignore_name();
-        //println!("Getting internal {:?}", param.ignore_name());
-        if let Some(st_property) = self.unique_tokes.get(without_name) {
-            //println!("Already have internal struct: {:?}", without_name);
-            return st_property.clone();
+        if let Some(st_property) = self.unique_tokes.get(param) {
+            if name
+                .clone()
+                .map(|name| st_property.name().eq(&name))
+                .unwrap_or(false)
+            {
+                return st_property.clone();
+            }
         }
 
         match param {
@@ -333,31 +357,24 @@ impl StructGen {
 
                 for i in a.iter() {
                     let property = self.make_struct_property(Some(i.name.to_string()), &i.ty);
-                    let property_name_ident = format_ident!("{}", i.name.as_ref());
-                    let ty_ident = property.type_name();
-
-                    let quote = quote! {
-                        pub #property_name_ident: #ty_ident,
-                    };
-
                     structs.push(property);
                 }
 
                 let mut internal_properties: Vec<proc_macro2::TokenStream> = Vec::new();
 
                 for p in &structs {
-                    let name = p.name();
-                    let rust_property_name_ident = format_ident!("{}", name.as_str().to_snake());
-                    let derive = if rust_property_name_ident == name {
+                    let p_name = p.name();
+                    let rust_property_name_ident = format_ident!("{}", p_name.as_str().to_snake());
+                    let derive = if rust_property_name_ident == p_name {
                         quote! {
                             #[abi]
                         }
                     } else {
                         quote! {
-                           #[abi(name = #name)]
+                           #[abi(name = #p_name)]
                         }
                     };
-                    let internal_ident = p.type_name();
+                    let internal_ident = p.type_name_quote();
                     let quote = quote! {
                         #derive
                         pub #rust_property_name_ident: #internal_ident,
@@ -373,19 +390,15 @@ impl StructGen {
                     }
                 };
 
-                //println!("Pushing {}", &camel_case_struct_name);
                 self.temporary_internal_structs_idents.push(internal_struct);
-                //let impl_with_abi_quote =
-                //quote_traits::implement_with_abi_type(&camel_case_struct_name, a);
+
                 let property = StructProperty::Tuple {
                     name: name,
-                    //fields: structs,
+                    fields: structs,
                 };
 
-                //println!("Adding internal strunct: {:?}", &without_name);
                 {
-                    self.unique_tokes
-                        .insert(without_name.clone(), property.clone());
+                    self.unique_tokes.insert(param.clone(), property.clone());
 
                     if !self.generated_structs.contains_key(&camel_case_struct_name) {
                         self.generated_structs
@@ -453,21 +466,6 @@ impl StructGen {
     }
 }
 
-// fn check_duplicates(left: &[NamedAbiType], right: &[NamedAbiType]) -> bool {
-//     if left.len() != right.len() {
-//         return false;
-//     }
-//
-//     let set = HashSet::from_iter(right.iter());
-//
-//     for i in left {
-//         if !set.contains(i) {
-//             return false;
-//         }
-//     }
-//     true
-// }
-
 #[derive(Clone)]
 enum StructProperty {
     Simple {
@@ -476,7 +474,7 @@ enum StructProperty {
     },
     Tuple {
         name: String,
-        //fields: Vec<StructProperty>,
+        fields: Vec<StructProperty>,
     },
     Array {
         name: String,
@@ -494,21 +492,21 @@ enum StructProperty {
 }
 
 impl StructProperty {
-    pub fn type_name(&self) -> syn::Type {
+    pub fn type_name_quote(&self) -> syn::Type {
         match self {
             StructProperty::Simple { type_name, .. } => type_name.clone(),
             StructProperty::Tuple { name, .. } => syn::parse_str(&name.to_camel()).unwrap(),
             StructProperty::Array { internal, .. } => {
-                let ty = internal.type_name();
+                let ty = internal.type_name_quote();
                 syn::parse_quote!(Vec<#ty>)
             }
             StructProperty::Option { internal, .. } => {
-                let ty = internal.type_name();
+                let ty = internal.type_name_quote();
                 syn::parse_quote!(Option<#ty>)
             }
             StructProperty::HashMap { key, value, .. } => {
-                let key = key.type_name();
-                let value = value.type_name();
+                let key = key.type_name_quote();
+                let value = value.type_name_quote();
                 syn::parse_quote!(std::collections::HashMap<#key, #value>)
             }
         }
