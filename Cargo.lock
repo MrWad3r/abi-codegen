@@ -8,7 +8,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "case",
- "everscale-types 0.1.0-rc.6",
+ "everscale-types",
  "expander",
  "num-bigint",
  "proc-macro2",
@@ -23,8 +23,9 @@ version = "0.1.0"
 dependencies = [
  "abi",
  "anyhow",
- "everscale-types 0.1.0-rc.5",
+ "everscale-types",
  "nekoton-abi",
+ "nekoton-derive",
  "num-bigint",
 ]
 
@@ -328,6 +329,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "either"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a26ae43d7bcc3b814de94796a5e736d4029efb0ee900c12e2d54c993ad1a1e07"
+
+[[package]]
 name = "everscale-crypto"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -343,34 +350,8 @@ dependencies = [
 
 [[package]]
 name = "everscale-types"
-version = "0.1.0-rc.5"
-source = "git+https://github.com/broxus/everscale-types#c12952c497a09b27b39b9c2cf7d193e0db13d17d"
-dependencies = [
- "ahash",
- "anyhow",
- "base64 0.21.4",
- "bitflags 2.4.0",
- "bytes",
- "crc32c",
- "ed25519-dalek 2.0.0",
- "everscale-crypto",
- "everscale-types-proc 0.1.4 (git+https://github.com/broxus/everscale-types)",
- "hex",
- "num-bigint",
- "num-traits",
- "once_cell",
- "serde",
- "sha2 0.10.8",
- "smallvec",
- "thiserror",
- "tl-proto",
-]
-
-[[package]]
-name = "everscale-types"
 version = "0.1.0-rc.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff3c058b07bdb5414da10bc8a2489715e31b0c3f4274a213c1a23831e9d94e91"
+source = "git+https://github.com/broxus/everscale-types#7e43baaad8d27ea3ef05763a7a073ee5be796d63"
 dependencies = [
  "ahash",
  "anyhow",
@@ -380,7 +361,7 @@ dependencies = [
  "crc32c",
  "ed25519-dalek 2.0.0",
  "everscale-crypto",
- "everscale-types-proc 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "everscale-types-proc",
  "hex",
  "num-bigint",
  "num-traits",
@@ -395,18 +376,7 @@ dependencies = [
 [[package]]
 name = "everscale-types-proc"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "323d8b61c76be2c16eb2d72d007f1542fdeb3760fdf2e2cae219fc0da3db0c09"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.37",
-]
-
-[[package]]
-name = "everscale-types-proc"
-version = "0.1.4"
-source = "git+https://github.com/broxus/everscale-types#c12952c497a09b27b39b9c2cf7d193e0db13d17d"
+source = "git+https://github.com/broxus/everscale-types#7e43baaad8d27ea3ef05763a7a073ee5be796d63"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -524,7 +494,7 @@ checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
 [[package]]
 name = "nekoton-abi"
 version = "0.13.0"
-source = "git+https://github.com/broxus/nekoton.git#f34223c5b4c1f4edef4ab9ca833e68abe559750b"
+source = "git+https://github.com/broxus/nekoton.git#b1578df2117570c250efe9a426c2e2b9c821180e"
 dependencies = [
  "anyhow",
  "base64 0.13.1",
@@ -548,9 +518,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "nekoton-derive"
+version = "0.13.0"
+source = "git+https://github.com/broxus/nekoton.git#b1578df2117570c250efe9a426c2e2b9c821180e"
+dependencies = [
+ "either",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "nekoton-utils"
 version = "0.13.0"
-source = "git+https://github.com/broxus/nekoton.git#f34223c5b4c1f4edef4ab9ca833e68abe559750b"
+source = "git+https://github.com/broxus/nekoton.git#b1578df2117570c250efe9a426c2e2b9c821180e"
 dependencies = [
  "anyhow",
  "base64 0.13.1",

@@ -13,7 +13,7 @@ proc-macro = true
 anyhow = "1.0"
 num-bigint = "0.4.4"
 
-everscale-types = {version = "0.1.0-rc.6", features = ["abi", "models"]}
+everscale-types = {git = "https://github.com/broxus/everscale-types", features = ["abi", "models"]}
 case = "1.0.0"
 proc-macro2 = "1.0"
 quote = "1.0"
