@@ -3,7 +3,7 @@ use everscale_types::abi::{AbiType, NamedAbiType, PlainAbiType};
 
 use quote::{format_ident, quote};
 
-pub struct TraitImplGen {}
+pub struct TraitImplGen;
 
 impl TraitImplGen {
     pub fn new() -> Self {
