@@ -3,6 +3,5 @@ pub struct FunctionDescriptionTokens {
     pub input: proc_macro2::TokenStream,
     pub output: proc_macro2::TokenStream,
 
-    pub inner_models: Vec<proc_macro2::TokenStream>
-
+    pub inner_models: Vec<proc_macro2::TokenStream>,
 }

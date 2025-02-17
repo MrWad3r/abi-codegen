@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-abi = {path = "abi"}
+abi = { path = "abi" }
 everscale-types = {git = "https://github.com/broxus/everscale-types", features = ["abi", "models"]}
 num-bigint = "0.4.4"
 

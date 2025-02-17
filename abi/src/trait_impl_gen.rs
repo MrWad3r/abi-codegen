@@ -1,6 +1,7 @@
 use case::CaseExt;
 use everscale_types::abi::{AbiType, NamedAbiType, PlainAbiType};
 
+use crate::{quote_abi_type, quote_abi_value};
 use quote::{format_ident, quote};
 
 pub struct TraitImplGen;
@@ -153,131 +154,5 @@ impl TraitImplGen {
         };
 
         quote
-    }
-}
-
-fn quote_abi_type(ty: &AbiType) -> proc_macro2::TokenStream {
-    let quote: proc_macro2::TokenStream = match ty.clone() {
-        AbiType::String => {
-            let ty: syn::Type = syn::parse_quote!(everscale_types::abi::AbiType::String);
-            quote! {
-                #ty
-            }
-        }
-        AbiType::Address => {
-            let ty: syn::Type = syn::parse_quote!(everscale_types::abi::AbiType::Address);
-            quote! {
-                #ty
-            }
-        }
-        AbiType::Bool => syn::parse_quote!(everscale_types::abi::AbiType::Bool),
-        AbiType::Bytes => syn::parse_quote!(everscale_types::abi::AbiType::Bytes),
-        AbiType::FixedBytes(size) => {
-            syn::parse_quote!(everscale_types::abi::AbiType::FixedBytes(#size))
-        }
-        AbiType::Cell => syn::parse_quote!(everscale_types::abi::AbiType::Cell),
-        AbiType::Token => syn::parse_quote!(everscale_types::abi::AbiType::Token),
-        AbiType::Int(value) => quote! {
-            everscale_types::abi::AbiType::Int(#value)
-        },
-        AbiType::Uint(value) => {
-            quote! {
-                everscale_types::abi::AbiType::Uint(#value)
-            }
-        }
-        AbiType::VarInt(value) => {
-            let val = value.get();
-            quote! {
-                everscale_types::abi::AbiType::Int(core::num::nonzero::NonZeroU8(#val))
-            }
-        }
-        AbiType::VarUint(value) => {
-            let val = value.get();
-            quote! {
-                everscale_types::abi:AbiType::Uint(core::num::nonzero::NonZeroU8(#val))
-            }
-        }
-        AbiType::Tuple(tuple) => {
-            let mut tuple_properties = Vec::new();
-
-            for i in tuple.iter() {
-                let name_abi_quote = make_abi_type(i.name.as_ref(), i.ty.clone());
-                tuple_properties.push(name_abi_quote);
-            }
-
-            quote! {
-                everscale_types::abi::AbiType::Tuple(std::sync::Arc::new([ #(#tuple_properties),*]))
-            }
-        }
-        AbiType::Array(ty) => {
-            let ty = quote_abi_type(&ty);
-            quote! {
-                everscale_types::abi::AbiType::Array(std::sync::Arc::new(#ty))
-            }
-        }
-        AbiType::FixedArray(ty, size) => {
-            let ty = quote_abi_type(&ty);
-            quote! {
-                everscale_types::abi:AbiType::FixedArray(std::sync::Arc<#ty>, #size)
-            }
-        }
-        AbiType::Map(key, value) => {
-            let key_type: proc_macro2::TokenStream = match key {
-                PlainAbiType::Address => {
-                    let ty: syn::Type =
-                        syn::parse_quote!(everscale_types::abi::PlainAbiType::Address);
-                    quote! {
-                        #ty
-                    }
-                }
-                PlainAbiType::Bool => {
-                    let ty: syn::Type = syn::parse_quote!(everscale_types::abi::PlainAbiType::Bool);
-                    quote! {
-                        #ty
-                    }
-                }
-                PlainAbiType::Uint(value) => {
-                    quote! {
-                        everscale_types::abi::PlainAbiType::Uint(#value)
-                    }
-                }
-                PlainAbiType::Int(value) => {
-                    quote! {
-                        everscale_types::abi::PlainAbiType::Int(#value)
-                    }
-                }
-            };
-
-            let value_type = quote_abi_type(&value);
-            syn::parse_quote!(everscale_types::abi::AbiType::Map(#key_type, std::sync::Arc::new(#value_type)))
-        }
-        AbiType::Optional(_) => {
-            let ty = quote_abi_type(ty);
-            quote! {
-                everscale_types::abi::AbiType::Optional(std::sync::Arc<#ty>)
-            }
-        }
-        AbiType::Ref(_) => {
-            let ty = quote_abi_type(ty);
-            quote! {
-                everscale_types::abi::AbiType::Ref(std::sync::Arc<#ty>)
-            }
-        }
-    };
-    quote
-}
-
-fn quote_abi_value(name: &str) -> proc_macro2::TokenStream {
-    let name_ident = format_ident!("{}", name.to_snake());
-    quote! {
-        everscale_types::abi::IntoAbi::as_abi(&self.#name_ident)
-    }
-}
-
-fn make_abi_type(name: &str, abi_type: AbiType) -> proc_macro2::TokenStream {
-    let abi_type = quote_abi_type(&abi_type);
-
-    quote! {
-        NamedAbiType::new(#name, #abi_type)
     }
 }
