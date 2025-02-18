@@ -10,9 +10,10 @@ proc-macro = true
 
 
 [dependencies]
-everscale-types = {git = "https://github.com/broxus/everscale-types", features = ["abi", "models"]}
 case = "1.0.0"
+darling = "0.20"
+everscale-types = { git = "https://github.com/broxus/everscale-types", features = ["abi", "models"] }
 proc-macro2 = "1.0"
 quote = "1.0"
 serde_json = "1.0"
-syn = {version = "2.0", features = ["visit", "parsing"]}
+syn = { version = "2.0", features = ["visit", "parsing"] }

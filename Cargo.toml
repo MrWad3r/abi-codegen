@@ -3,10 +3,11 @@ name = "abi-codegen"
 version = "0.1.0"
 edition = "2021"
 
+
 [dependencies]
 anyhow = "1.0"
 abi = { path = "abi" }
-everscale-types = {git = "https://github.com/broxus/everscale-types", features = ["abi", "models"]}
+everscale-types = { git = "https://github.com/broxus/everscale-types", features = ["abi", "models"] }
 num-bigint = "0.4.4"
 
 nekoton-abi = { git = "https://github.com/broxus/nekoton.git" }

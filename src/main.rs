@@ -1,12 +1,10 @@
 //extern crate abi;
-use abi::abi;
 
-abi!("qube", "abi.json");
+use abi_codegen::contracts::qube::functions::*;
 
 fn main() {
-    //let qube_contract: ExistingContract = qube::contract::QubeContract::new();
-    //qube_contract.run_local::<qube::GetGaugeVotesFunction>(input)
-    let func = qube::functions::get_gauge_votes();
+    let func = upgrade();
+
     println!("{}", func.input_id);
     println!("{}", func.output_id);
     println!("{}", func.abi_version);

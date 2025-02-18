@@ -1,7 +1,6 @@
 extern crate proc_macro;
 
 use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use case::CaseExt;
@@ -10,29 +9,43 @@ use everscale_types::abi::{
 };
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
+use syn::parse::{Parse, ParseStream};
+use syn::Result;
+use syn::{parse_macro_input, ItemMod};
 
-use self::models::FunctionDescriptionTokens;
+use crate::models::FunctionDescriptionTokens;
 
 mod models;
 mod trait_impl_gen;
 
-#[proc_macro]
-pub fn abi(input: TokenStream) -> TokenStream {
+struct ModuleParams {
+    path: String,
+}
+
+impl Parse for ModuleParams {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let path = input.parse::<syn::LitStr>()?.value();
+        Ok(ModuleParams { path })
+    }
+}
+
+#[proc_macro_attribute]
+pub fn abi(params: TokenStream, input: TokenStream) -> TokenStream {
     let mut generated_structs: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut generated_functions: Vec<proc_macro2::TokenStream> = Vec::new();
 
-    let current_dir = std::env::current_dir().unwrap();
-    let array = input
-        .to_string()
-        .split(',')
-        .map(|x| x.trim().to_string())
-        .collect::<Vec<String>>();
-
-    let file_path = PathBuf::from(array[1].to_string().replace("\"", ""));
-    let path = current_dir.join(file_path);
+    let params = parse_macro_input!(params as ModuleParams);
+    let path_ident = params.path.trim_matches('"');
+    let path = std::env::current_dir()
+        .map_err(|e| format!("Failed to get current directory: {}", e))
+        .unwrap()
+        .join(path_ident);
 
     let content = fs::read_to_string(path).unwrap();
     let contract = serde_json::from_str::<Contract>(&content).unwrap();
+
+    let input = parse_macro_input!(input as ItemMod);
+    let mod_name = &input.ident;
 
     let mut struct_gen = StructGen::new();
 
@@ -82,7 +95,6 @@ pub fn abi(input: TokenStream) -> TokenStream {
     //     })
     //     .collect();
 
-    let contract_name = format_ident!("{}", array[0].replace("\"", ""));
     let header_type: syn::Type = syn::parse_str("everscale_types::abi::AbiHeaderType").unwrap();
     let abi_type: syn::Type = syn::parse_str("everscale_types::abi::AbiVersion").unwrap();
 
@@ -110,15 +122,13 @@ pub fn abi(input: TokenStream) -> TokenStream {
 
     let quote = quote! {
 
-        pub mod #contract_name {
+        pub mod #mod_name {
             use anyhow::Result;
             use nekoton_abi::{BuildTokenValue, FunctionBuilder, EventBuilder, TokenValueExt};
             use everscale_types::abi::{NamedAbiType, AbiType, WithAbiType, IntoAbi, IntoPlainAbi,
                 FromAbiIter, FromAbi, AbiValue, NamedAbiValue
             };
             use num_bigint::{BigInt, BigUint};
-
-
 
             #(#generated_structs)*
 
@@ -185,10 +195,9 @@ impl StructGen {
 
         let function_name_ident = format_ident!("{}", snake_function_name);
 
-        let function_input = format_ident!("{}FunctionInput", &camel_function_name);
-        let function_output = format_ident!("{}FunctionOutput", &camel_function_name);
-
-        let inputs: Vec<_> = self.generated_structs.get(&format!("{}FunctionInput", &camel_function_name))
+        let inputs: Vec<_> = self
+            .generated_structs
+            .get(&format!("{}FunctionInput", &camel_function_name))
             .cloned()
             .unwrap_or_default()
             .into_iter()
@@ -198,10 +207,12 @@ impl StructGen {
                 quote! {
                     NamedAbiType::new(#name, #quote_abi_type)
                 }
-            }).collect();
+            })
+            .collect();
 
-
-        let outputs: Vec<_> = self.generated_structs.get(&format!("{}FunctionOutput", &camel_function_name))
+        let outputs: Vec<_> = self
+            .generated_structs
+            .get(&format!("{}FunctionOutput", &camel_function_name))
             .cloned()
             .unwrap_or_default()
             .into_iter()
@@ -211,8 +222,8 @@ impl StructGen {
                 quote! {
                     NamedAbiType::new(#name, #quote_abi_type)
                 }
-            }).collect();
-
+            })
+            .collect();
 
         let input_tokens = quote! {
             [ #(#inputs),* ]
@@ -298,14 +309,20 @@ impl StructGen {
             );
         }
 
-        let func = quote! {
-            #[derive(Clone, Debug)]
-            pub struct #struct_name_ident {
-                #(#properties)*
+        let body = if properties.is_empty() {
+            quote! {
+                type #struct_name_ident = ();
+            }
+        } else {
+            quote! {
+                #[derive(Clone, Debug)]
+                pub struct #struct_name_ident {
+                    #(#properties)*
+                }
             }
         };
 
-        func.into()
+        body.into()
     }
 
     fn make_function_input_struct(&mut self, function: &Function) -> proc_macro2::TokenStream {
@@ -419,11 +436,16 @@ impl StructGen {
                     internal_properties.push(quote);
                 }
 
-                let internal_struct = quote! {
-
-                    #[derive(Clone, Debug)]
-                    pub struct #struct_name_ident {
-                        #(#internal_properties)*
+                let internal_struct = if !internal_properties.is_empty() {
+                    quote! {
+                        #[derive(Clone, Debug)]
+                        pub struct #struct_name_ident {
+                            #(#internal_properties)*
+                        }
+                    }
+                } else {
+                    quote! {
+                        type #struct_name_ident = ();
                     }
                 };
 

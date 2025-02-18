@@ -1,7 +1,7 @@
 use anyhow::Result;
 use everscale_types::abi::{AbiValue, Event, FromAbi, Function, IntoAbi, WithAbiType};
-use everscale_types::models::{Account, StdAddr};
-use nekoton_abi::{FunctionExt, LastTransactionId};
+use everscale_types::models::Account;
+use nekoton_abi::LastTransactionId;
 
 pub struct ExistingContract {
     //#[serde(with = "serde_account_stuff")]
@@ -18,18 +18,18 @@ impl ExistingContract {
     }
 
     pub fn run_local<T: FunctionDescr>(&self, input: T::Input) -> Result<T::Output> {
-        let function = T::function();
+        let _function = T::function();
 
-        let AbiValue::Tuple(abi) = input.into_abi() else {
+        let AbiValue::Tuple(_) = input.into_abi() else {
             anyhow::bail!("Expected input as tuple");
         };
-        function.encode_external(&abi);
 
         // TODO: call here smth
         Err(anyhow::Error::msg("not implemented"))
     }
 
     pub fn run_local_responsible<T: FunctionDescr>(&self, input: T::Input) -> Result<T::Output> {
+        let _ = input.into_abi();
         // TODO: call here smth
         Err(anyhow::Error::msg("not implemented"))
     }

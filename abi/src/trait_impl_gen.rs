@@ -1,5 +1,5 @@
 use case::CaseExt;
-use everscale_types::abi::{AbiType, NamedAbiType, PlainAbiType};
+use everscale_types::abi::NamedAbiType;
 
 use crate::{quote_abi_type, quote_abi_value};
 use quote::{format_ident, quote};
@@ -8,7 +8,7 @@ pub struct TraitImplGen;
 
 impl TraitImplGen {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     pub fn implement_traits(
@@ -35,11 +35,11 @@ impl TraitImplGen {
     pub fn implement_with_abi_type(
         &self,
         struct_name: &str,
-        properites: &[NamedAbiType],
+        properties: &[NamedAbiType],
     ) -> proc_macro2::TokenStream {
         let name_ident = format_ident!("{}", struct_name);
 
-        let props_quote: Vec<_> = properites
+        let props_quote: Vec<_> = properties
             .iter()
             .map(|x| {
                 let name = x.name.as_ref();
@@ -51,22 +51,27 @@ impl TraitImplGen {
             })
             .collect();
 
-        let properties = quote! {
+        let props = quote! {
             [ #(#props_quote),* ]
         };
 
-        let properties_count = properites.len();
-        let tuple_tokens = quote! {
-            let properties: [NamedAbiType; #properties_count] = #properties;
-        };
-        quote! {
-            impl WithAbiType for #name_ident {
-                fn abi_type() -> AbiType {
-                     #tuple_tokens
-                     AbiType::Tuple(std::sync::Arc::new(properties))
+        if !properties.is_empty() {
+            let properties_count = properties.len();
+            let tuple_tokens = quote! {
+                let properties: [NamedAbiType; #properties_count] = #props;
+            };
+
+            return quote! {
+                impl WithAbiType for #name_ident {
+                    fn abi_type() -> AbiType {
+                         #tuple_tokens
+                         AbiType::Tuple(std::sync::Arc::new(properties))
+                    }
                 }
-            }
+            };
         }
+
+        proc_macro2::TokenStream::new()
     }
 
     pub fn implement_from_abi(
@@ -89,29 +94,33 @@ impl TraitImplGen {
             #(#props)*
         };
 
-        quote! {
-            impl FromAbi for #struct_name_ident {
-                fn from_abi(value: AbiValue) -> Result<Self> {
-                    match value {
-                        AbiValue::Tuple(properties) =>  {
-                            let mut iterator = properties.into_iter();
-                            Ok(
-                                #struct_name_ident {
-                                    #props_vec
-                                }
-                            )
+        if !props.is_empty() {
+            return quote! {
+                impl FromAbi for #struct_name_ident {
+                    fn from_abi(value: AbiValue) -> Result<Self> {
+                        match value {
+                            AbiValue::Tuple(properties) =>  {
+                                let mut iterator = properties.into_iter();
+                                Ok(
+                                    #struct_name_ident {
+                                        #props_vec
+                                    }
+                                )
 
-                        },
-                        _ => Err(anyhow::Error::from(
-                            everscale_types::abi::error::AbiError::TypeMismatch {
-                                expected: std::boxed::Box::<str>::from("tuple"),
-                                ty: value.display_type().to_string().into(),
                             },
-                        )),
+                            _ => Err(anyhow::Error::from(
+                                everscale_types::abi::error::AbiError::TypeMismatch {
+                                    expected: std::boxed::Box::<str>::from("tuple"),
+                                    ty: value.display_type().to_string().into(),
+                                },
+                            )),
+                        }
                     }
                 }
-            }
+            };
         }
+
+        proc_macro2::TokenStream::new()
     }
 
     pub fn implement_into_abi(
@@ -138,21 +147,23 @@ impl TraitImplGen {
             props.push(quote);
         }
 
-        let quote = quote! {
-            impl IntoAbi for #struct_name_ident {
-                fn as_abi(&self) -> AbiValue {
-                    AbiValue::Tuple(vec![#(#props),*])
-                }
+        if !props.is_empty() {
+            return quote! {
+                impl IntoAbi for #struct_name_ident {
+                    fn as_abi(&self) -> AbiValue {
+                        AbiValue::Tuple(vec![#(#props),*])
+                    }
 
-                fn into_abi(self) -> AbiValue
-                where
-                    Self: Sized,
-                {
-                     AbiValue::Tuple(vec![#(#props),*])
+                    fn into_abi(self) -> AbiValue
+                    where
+                        Self: Sized,
+                    {
+                         AbiValue::Tuple(vec![#(#props),*])
+                    }
                 }
-            }
-        };
+            };
+        }
 
-        quote
+        proc_macro2::TokenStream::new()
     }
 }
